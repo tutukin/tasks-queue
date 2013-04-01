@@ -1,14 +1,32 @@
 var	expect			= require('expect.js'),
 	EventEmitter	= require('events').EventEmitter,
 	sinon			= require('sinon'),
-	TasksQueue		= require('../lib/tasks-queue.js'),
-	TaskTypeEvent	= require('../lib/TaskTypeEvent');
+	Jinn, jinn,
+	mock			= require('mock'),
+	mocks			= {},
+	TasksQueue;
 
+Jinn = sinon.stub();
+Jinn.prototype.done = sinon.spy();
+Jinn.prototype.on	= sinon.spy();
+Jinn.prototype.emit = sinon.spy();
+
+
+mocks[__dirname + '/../lib/Jinn'] = Jinn;
+
+TasksQueue = mock( __dirname + '/../lib/tasks-queue', mocks );
 
 describe('TasksQueue', function() {
 	var q;
 	
 	beforeEach(function(done) {
+		var	actions = {};
+		
+		Jinn.reset();
+		Jinn.prototype.done.reset();
+		Jinn.prototype.on.reset();
+		Jinn.prototype.emit.reset();
+		
 		q = new TasksQueue();
 		done();
 	});
@@ -226,6 +244,9 @@ describe('TasksQueue', function() {
 			type = 'some type';
 			data = {};
 			clock = sinon.useFakeTimers();
+			
+			q.emit = sinon.spy();
+			
 			done();
 		});
 		
@@ -239,36 +260,64 @@ describe('TasksQueue', function() {
 			done();
 		});
 		
-		it('should emit "stop" event if queue is empty', function(done) {
-			var	listener = sinon.spy();
-			q.on('stop',listener);
+		it('should emit "stop" event if queue is empty, passing Jinn as an argument to listener', function(done) {
 			q.execute();
 			
-			expect( listener.calledOnce ).to.equal(true);
+			expect( q.emit.calledOnce ).to.equal(true);
+			expect( q.emit.firstCall.args[0] ).to.equal('stop');
+			expect( q.emit.firstCall.args[1] ).to.be.a(Jinn);
 			
 			done();
 		});
 		
 		it('should not emit "stop" event if queue is not empty', function(done) {
-			var listener	= sinon.spy();
-			
 			q.pushTask(type,data);
-			q.on('stop',listener);
+			
 			q.execute();
 			
-			expect(listener.called).to.equal(false);
+			expect( q.emit.calledWith('stop') ).to.equal(false);
 			
 			done();
 		});
 		
 		it('should emit <type> event if the top task has type <type>', function(done) {
-			var listener	= sinon.spy();
-			
 			q.pushTask(type,data);
-			q.on(type,listener);
+			
 			q.execute();
 			
-			expect(listener.calledOnce).to.equal(true);
+			expect( q.emit.calledOnce ).to.equal(true);
+			expect( q.emit.firstCall.args[0] ).to.equal( type );
+			expect( q.emit.firstCall.args[1] ).to.be.a( Jinn );
+			expect( q.emit.firstCall.args[2] ).to.equal( data );
+			
+			done();
+		});
+		
+		it("should create a jinn, passing self and Task objecs", function(done) {
+			q.pushTask(type,data);
+			
+			q.execute();
+			
+			expect( Jinn.firstCall.args[0] ).to.equal(q);
+			expect( Jinn.firstCall.args[1].getData() ).to.equal(data);
+			
+			done();
+		});
+		
+		it("should bind a listener to jinn's <done> event, that calls q.taskDone", function(done) {
+			q.pushTask(type,data);
+			q.taskDone = sinon.spy();
+			
+			q.execute();
+
+			expect( Jinn.prototype.on.calledOnce).to.equal(true);
+			expect( Jinn.prototype.on.firstCall.args[0] ).to.equal('done');
+			expect( Jinn.prototype.on.firstCall.args[1] ).to.be.a('function');
+			expect( q.taskDone.called ).to.equal(false);
+			
+			Jinn.prototype.on.firstCall.args[1]();
+			
+			expect( q.taskDone.calledOnce ).to.equal(true);
 			
 			done();
 		});
@@ -305,6 +354,7 @@ describe('TasksQueue', function() {
 			q.execute();
 			
 			expect(q.shouldWaitMinTime()).to.equal(false);
+			
 			done();
 		});
 		
@@ -312,8 +362,11 @@ describe('TasksQueue', function() {
 			var t = 10;
 			q.setMinTime(t);
 			q.pushTask(type,data);
+			
 			q.execute();
+			
 			expect( q.shouldWaitMinTime() ).to.equal(true);
+			
 			done();
 		});
 		
@@ -321,6 +374,7 @@ describe('TasksQueue', function() {
 			var t = 10;
 			q.setMinTime(t);
 			q.pushTask(type,data);
+			
 			q.execute();
 			
 			clock.tick(t);
@@ -365,19 +419,22 @@ describe('TasksQueue', function() {
 		});
 		
 		it('should execute tasks in order from the first one in the queue', function(done) {
-			var res = '';
+			var topTask;
 			
-			q.pushTask(type,{n:2});
-			q.unshiftTask(type,{n:1});
-			q.pushTask(type,{n:3});
+			q.pushTask(type+"2",{n:2});
+			q.unshiftTask(type+"1",{n:1});
+			q.pushTask(type+"3",{n:3});
 			
-			q.on(type, function (e,d) { res = res + d.n; e.done(); });
-			q.on('stop',function (e) {
-				expect(res).to.equal('123');
-				done();
-			});
+			topTask = q.getTask(0);
 			
 			q.execute();
+			
+			expect(q.emit.calledOnce).to.equal(true);
+			expect(q.emit.firstCall.args[0]).to.equal( topTask.getType() );
+			expect(q.emit.firstCall.args[1]).to.be.a(Jinn);
+			expect(q.emit.firstCall.args[2]).to.equal( topTask.getData() );
+			
+			done();
 		});
 	});
 	
@@ -512,66 +569,28 @@ describe('TasksQueue', function() {
 	});
 	
 	
-	
-	describe('event:stop object', function() {
-		var	stopEvent;
-		
-		beforeEach(function(done) {
-			q.on('stop', function(event) { stopEvent=event; } );
-			q.execute();
-			done();
-		});
-		
-		it('should be passed to the listener as the first argument', function(done) {
-			expect(stopEvent).to.be.an(Object);
-			done();
-		});
-		
-		it('should have "type" property that equals to "stop"', function(done) {
-			expect( stopEvent.type ).to.equal('stop');
-			done();
-		});
-		
-		it('should have "queue" property that refers to the queue instance', function(done) {
-			expect( stopEvent.queue ).to.equal( q );
-			done();
-		});
-		
-	});
-	
-	
-	describe('event:<task type>', function() {
-		var type, data, listener;
-		
-		beforeEach(function(done) {
-			type	= 'some type';
-			data	= {};
-			listener= sinon.spy();
-			
-			q.pushTask(type,data);
-			q.on(type, listener );
-			q.execute();
-			
-			done();
-		});
-		
-		it('should call the listener with the TaskTypeEvent object as the first argument', function(done) {
-			var event = listener.firstCall.args[0];
-			
-			expect(event).to.be.a(TaskTypeEvent);
-			expect(event.getType()).to.equal(type);
-			expect(event.getQueue()).to.equal(q);
-			
-			done();
-		});
-		
-		it('should pass data to the listener as the second argument', function(done) {
-			var actualData = listener.firstCall.args[1];
-			
-			expect(actualData).to.equal(data);
+	describe('#setVar(name,object)', function() {
+		it('should be an instance method', function(done) {
+			expect( q.setVar ).to.be.a('function');
 			done();
 		});
 	});
 	
-
+	describe('#getVar(name)', function() {
+		it('should be an instance method', function(done) {
+			expect(q.getVar).to.be.a('function');
+			done();
+		});
+		
+		it('should return an object that was associated with <name> by setVar(name,obj)', function(done) {
+			var	name	= 'a var name',
+				obj		= {};
+			
+			q.setVar(name,obj);
+			
+			expect( q.getVar(name) ).to.equal( obj );
+			
+			done();
+		});
+	});
 });

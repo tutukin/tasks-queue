@@ -1,10 +1,10 @@
-var	TaskQueue	= require('../lib/tasks-queue'),
+var	TaskQueue	= require('../'),
 	util		= require('util'),
-	tickValue	= 0,
 	clock, q;
 
 var q = new TaskQueue();
 q.setMinTime(500);
+q.setVar('time',0);
 
 q.pushTask('quick',{n:1});
 q.pushTask('quick',{n:2});
@@ -19,30 +19,32 @@ q.on('stop',stop);
 clock = setInterval(tick,100);
 q.execute();
 
-function stop (event) {
+function stop (jinn) {
 	clearInterval(clock);
-	util.puts("Queue finished");
+	util.puts("Queue finished in " + jinn.getQueue().getVar('time') + " ms");
 }
 
-function log (event, data) {
-	util.puts("Task: "+data.n);
-	event.done();
+function log (jinn, data) {
+	var t = jinn.getQueue().getVar('time');
+	util.puts("["+t+" ms] " + "Task: "+data.n + " done");
+	jinn.done();
 }
 
-function long(event,data) {
-	var timeout = 3*event.getQueue().getMinTime(),
-		timer;
+function long(jinn,data) {
+	var timeout = 3*jinn.getQueue().getMinTime(),
+		timer,
+		t = jinn.getQueue().getVar('time');
 	
-	util.puts("Start long Task: "+data.n);
+	util.puts( "[" + t + " ms] " + "Start long Task: "+data.n);
 	
 	timer = setTimeout(go,timeout);
 	
 	function go () {
-		log(event,data);
+		log(jinn,data);
 	}
 }
 
 function tick() {
-	tickValue = tickValue+100;
-	util.puts("Tick: " + tickValue);
+	var tickValue = q.getVar('time')+100;
+	q.setVar('time',tickValue);
 }
