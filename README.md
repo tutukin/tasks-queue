@@ -27,12 +27,12 @@ Install the module with:
     
     function process(jinn,data) {
         var q = jinn.getQueue();
-        q.setVar('value', data.n + q.getVar('value');
+        q.setVar('value', data.n + q.getVar('value'));
         jinn.done(); // important!
     }
     
     function logResults(jinn) {
-        console.log(jinn.getQueue().getVar('value');
+        console.log(jinn.getQueue().getVar('value'));
     }
 
 ##API
