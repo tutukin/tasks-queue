@@ -17,7 +17,7 @@ mocks[__dirname + '/../lib/Jinn'] = Jinn;
 TasksQueue = mock( __dirname + '/../lib/tasks-queue', mocks );
 
 describe('TasksQueue', function() {
-	var q;
+	var q, qq;
 	
 	beforeEach(function(done) {
 		var	actions = {};
@@ -28,6 +28,11 @@ describe('TasksQueue', function() {
 		Jinn.prototype.emit.reset();
 		
 		q = new TasksQueue();
+		qq= new TasksQueue({autostop:false});
+		
+		q.emit = sinon.spy();
+		qq.emit = sinon.spy();
+
 		done();
 	});
 	
@@ -237,6 +242,52 @@ describe('TasksQueue', function() {
 		});
 	});
 	
+	
+	describe('#shouldAutostop()', function() {
+		it('should be an instance method', function(done) {
+			expect( q.shouldAutostop ).to.be.a('function');
+			done();
+		});
+		it('should return true by default', function(done) {
+			expect( q.shouldAutostop() ).to.equal(true);
+			done();
+		});
+		it('should return false if autostop:false option was passed to a constructor', function(done) {
+			expect( qq.shouldAutostop() ).to.equal(false);
+			done();
+		});
+	});
+	
+	
+	describe('#autostop()', function() {
+		it('should be an instance method', function(done) {
+			expect( q.autostop ).to.be.a('function');
+			done();
+		});
+		
+		it('should turn on autostop flag', function(done) {
+			expect( qq.shouldAutostop() ).to.equal(false);
+			qq.autostop();
+			expect( qq.shouldAutostop() ).to.equal(true);
+			done();
+		});
+	});
+	
+	describe('#noautostop()', function() {
+		it('should be an instance method', function(done) {
+			expect( q.noautostop ).to.be.a('function');
+			done();
+		});
+		
+		it('should turn off autostop flag', function(done) {
+			expect( q.shouldAutostop() ).to.equal(true);
+			q.noautostop();
+			expect( q.shouldAutostop() ).to.equal(false);
+			done();
+		});
+	});
+	
+	
 	describe('#execute()', function() {
 		var clock, type, data;
 		
@@ -244,8 +295,6 @@ describe('TasksQueue', function() {
 			type = 'some type';
 			data = {};
 			clock = sinon.useFakeTimers();
-			
-			q.emit = sinon.spy();
 			
 			done();
 		});
@@ -270,16 +319,6 @@ describe('TasksQueue', function() {
 			done();
 		});
 		
-		it('should not emit "stop" event if queue is not empty', function(done) {
-			q.pushTask(type,data);
-			
-			q.execute();
-			
-			expect( q.emit.calledWith('stop') ).to.equal(false);
-			
-			done();
-		});
-		
 		it('should emit <type> event if the top task has type <type>', function(done) {
 			q.pushTask(type,data);
 			
@@ -293,13 +332,15 @@ describe('TasksQueue', function() {
 			done();
 		});
 		
-		it("should create a jinn, passing self and Task objecs", function(done) {
+		it("should create a jinn for <type> event, passing self and Task objecs", function(done) {
+			var task;
 			q.pushTask(type,data);
+			task = q.getTask(0);
 			
 			q.execute();
 			
 			expect( Jinn.firstCall.args[0] ).to.equal(q);
-			expect( Jinn.firstCall.args[1].getData() ).to.equal(data);
+			expect( Jinn.firstCall.args[1] ).to.equal(task);
 			
 			done();
 		});
@@ -336,10 +377,7 @@ describe('TasksQueue', function() {
 		});
 		
 		it('should set <TaskRunning> flag to true', function(done) {
-			var	length;
-			
 			q.pushTask(type,data);
-			length = q.length();
 			
 			q.execute();
 			
@@ -436,6 +474,28 @@ describe('TasksQueue', function() {
 			
 			done();
 		});
+		
+		describe('non-autostop queue', function() {
+			it('should not emit "stop" event if queue is empty when autostop:false option was used', function(done) {
+				qq.execute();
+				expect( qq.emit.calledWith("stop") ).to.equal(false);
+				done();
+			});
+			
+			it('should start timer that executes execute() in minTime', function(done) {
+				var t = 10;
+				qq.setMinTime(t);
+				qq.execute();
+				qq.execute = sinon.spy();
+				
+				clock.tick(t);
+				
+				expect( qq.execute.calledOnce ).to.equal(true);
+				
+				done();
+			});
+
+		});
 	});
 	
 	
@@ -507,36 +567,34 @@ describe('TasksQueue', function() {
 		});
 		
 		it('should emit stop event if the queue is empty, ignoring <MinWaitTime>', function(done) {
-			var callback = sinon.spy(),
-				t = 10;
+			var t = 10;
+			
 			q.setMinTime(t);
 			q.pushTask(type,data);
-			q.on('stop',callback);
 			
 			q.execute();
 			q.taskDone();
 			
-			expect(callback.calledOnce).to.equal(true);
+			expect( q.emit.calledWith('stop') ).to.equal(true);
 			done();
 		});
 		
 		
 		it('should clear MinTime timer t if the queue is empty', function(done) {
-			var callback = sinon.spy(),
-				t = 10;
+			var t = 10;
+			
 			q.setMinTime(t);
 			q.pushTask(type,data);
-			q.on('stop',callback);
 			
 			q.execute();
 			q.taskDone();
 			
-			expect(callback.calledOnce).to.equal(true);
+			q.emit.reset();
 			
 			clock.tick(t);
 			clock.tick(t);
 			
-			expect(callback.calledOnce).to.equal(true);
+			expect(q.emit.calledWith('stop')).to.equal(false);
 			
 			done();
 		});

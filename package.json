@@ -1,7 +1,7 @@
 {
   "name": "tasks-queue",
   "description": "Put tasks in a queue and process them one by one, but not too often",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "homepage": "https://github.com/tutukin/tasks-queue",
   "author": {
     "name": "Andrei V. Toutoukine",
